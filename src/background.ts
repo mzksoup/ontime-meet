@@ -102,10 +102,10 @@ async function calcPatches(
   });
 }
 
-async function startWatching() {
+async function startWatching(interactive = true) {
   const [accessToken, user, config] = await Promise.all([
-    getAuthToken(),
-    getProfileUserInfo(),
+    getAuthToken(interactive),
+    getProfileUserInfo(interactive),
     loadConfig(),
     chrome.action.setBadgeText({ text: "-" }),
   ]);
@@ -185,7 +185,7 @@ async function init() {
     getAuthToken(false),
   ]);
   if (authToken) {
-    loading = startWatching();
+    loading = startWatching(false);
   }
   await chrome.alarms.create(Alerms.refetch, {
     periodInMinutes: config.pollInterval,
@@ -199,7 +199,7 @@ chrome.runtime.onMessage.addListener((message, _sender, callback) => {
 chrome.alarms.onAlarm.addListener(async (alerm) => {
   switch (alerm.name) {
     case Alerms.refetch: {
-      loading = startWatching();
+      loading = startWatching(false);
       return;
     }
     default: {
