@@ -185,7 +185,7 @@ async function init() {
     getAuthToken(false),
   ]);
   if (authToken) {
-    loading = startWatching(false);
+    loading = startWatching(false).catch(() => {});
   }
   await chrome.alarms.create(Alerms.refetch, {
     periodInMinutes: config.pollInterval,
@@ -199,7 +199,7 @@ chrome.runtime.onMessage.addListener((message, _sender, callback) => {
 chrome.alarms.onAlarm.addListener(async (alerm) => {
   switch (alerm.name) {
     case Alerms.refetch: {
-      loading = startWatching(false);
+      loading = startWatching(false).catch(() => {});
       return;
     }
     default: {

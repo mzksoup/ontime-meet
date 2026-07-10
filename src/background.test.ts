@@ -94,3 +94,18 @@ describe("background service worker auth behavior", () => {
     );
   });
 });
+
+describe("background service worker silent-auth failure handling", () => {
+  it("does not throw or leave an unhandled rejection when silent token refresh fails on the refetch alarm", async () => {
+    const listeners = await loadBackgroundModule();
+    (chrome.identity.getAuthToken as any).mockImplementation(
+      (opts: { interactive: boolean }, cb: (token?: string) => void) =>
+        opts.interactive ? cb("token-abc") : cb(undefined)
+    );
+
+    const refetchHandler = listeners.onAlarm[0];
+    await expect(refetchHandler({ name: "CRX_GCAL_REFRESH" })).resolves.not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+});
