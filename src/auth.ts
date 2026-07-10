@@ -6,10 +6,12 @@ export async function getAuthToken(interactive = true) {
   });
 }
 
-export async function getProfileUserInfo(): Promise<chrome.identity.UserInfo> {
+export async function getProfileUserInfo(
+  interactive = true
+): Promise<chrome.identity.UserInfo> {
   return fetch(`https://openidconnect.googleapis.com/v1/userinfo`, {
     headers: {
-      Authorization: `Bearer ${await getAuthToken()}`,
+      Authorization: `Bearer ${await getAuthToken(interactive)}`,
     },
   })
     .then((res) => res.json())
