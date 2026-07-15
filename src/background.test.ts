@@ -254,6 +254,34 @@ describe("background service worker stale-entry cleanup", () => {
     expect(reminders as any[]).toHaveLength(0);
   });
 
+  it("removes a stored event that disappeared from the feed even after its one-shot alarm already fired and Chrome auto-cleared it", async () => {
+    (willParticipate as any).mockReturnValue(true);
+    const start = new Date(Date.now() + 1000 * 60 * 60);
+    const end = new Date(start.getTime() + 1000 * 60 * 60);
+    const { onAlarm, onMessage, overrides } = await loadBackgroundModule({
+      icsUrl,
+      icsResponse: buildIcsFixture(start, end),
+    });
+    const refetchHandler = onAlarm[0];
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    // A one-shot chrome.alarms entry is auto-removed by Chrome once it
+    // fires, without going through removeEvent/clearOpenedFlag - simulate
+    // that here, independent of the alarm firing handler under test.
+    await chrome.alarms.clear("ics-event-1@example.com");
+
+    // The event is now deleted from the calendar: next feed has nothing.
+    overrides.icsResponse = buildEmptyIcsFixture();
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    const reminders = await new Promise((resolve) =>
+      onMessage[0]({ type: "ListReminders" }, {}, resolve)
+    );
+    expect(reminders as any[]).toHaveLength(0);
+  });
+
   it("drops the old occurrence's alarm and creates a new one when a recurring occurrence's id changes with its time", async () => {
     (willParticipate as any).mockReturnValue(true);
     const oldStart = new Date(Date.now() + 1000 * 60 * 60);

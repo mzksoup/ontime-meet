@@ -109,16 +109,20 @@ async function startWatching() {
     );
     const patches = await calcPatches(targetEvents, alarms);
 
-    // Anything alarmed that is no longer in the current feed window is
+    // Anything known that is no longer in the current feed window is
     // stale: deleted, declined, moved outside the 3-day window, or (for a
     // recurring occurrence) shifted to a new start time - which changes its
     // id (see ics.ts). Sweep it so old times don't linger forever.
-    // ponytail: keyed off alarms, not getAllEvents() - an alarm that already
-    // fired and then aged out of the window leaves its storage/opened entry
-    // behind. Add a union with getAllEvents() keys if that starts showing up
-    // as stale entries in the popup list.
+    // Union alarms with getAllEvents(): a one-shot alarm is auto-cleared by
+    // Chrome once it fires, so an already-fired event's storage/opened
+    // entry would otherwise never be caught by this sweep and would linger
+    // in the popup list even after the event is deleted from the calendar.
     const targetIds = new Set(targetEvents.map((e) => e.id));
-    const staleIds = [...alarms.keys()].filter(
+    const knownIds = new Set([
+      ...alarms.keys(),
+      ...(await getAllEvents()).keys(),
+    ]);
+    const staleIds = [...knownIds].filter(
       (name) => name !== Alerms.refetch && !targetIds.has(name)
     );
     await Promise.all(
