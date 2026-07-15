@@ -10,10 +10,9 @@ export function useIcsUrl() {
 
   const save = useCallback((value: string) => {
     const trimmed = value.trim() || null;
-    setIcsUrl(trimmed).then(() => {
-      setIcsUrlState(trimmed);
-      chrome.runtime.sendMessage({ type: "RefreshRequest" });
-    });
+    // caller is responsible for triggering a refetch (useEvents.refresh
+    // already sends its own RefreshRequest) - avoid double-fetching here.
+    return setIcsUrl(trimmed).then(() => setIcsUrlState(trimmed));
   }, []);
 
   return { icsUrl, save };

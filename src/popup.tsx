@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { Box, TextField } from "@mui/material";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -20,6 +20,10 @@ function App() {
   const { isAuthenticated, signIn, signOut } = useAuth();
   const { events, refresh } = useEvents();
   const { icsUrl, save: saveIcsUrl } = useIcsUrl();
+  const saveIcsUrlAndRefresh = useCallback(
+    (value: string) => saveIcsUrl(value).then(refresh),
+    [saveIcsUrl, refresh]
+  );
   const { t } = useI18n();
   const [mountedAt] = useState(Date.now());
   // ponytail: ICS mode is an alternative to Google sign-in, not layered on
@@ -77,8 +81,7 @@ function App() {
           label={t("icsUrlLabel")}
           helperText={t("icsUrlHelp")}
           defaultValue={icsUrl ?? ""}
-          onBlur={(e) => saveIcsUrl(e.target.value)}
-          required
+          onBlur={(e) => saveIcsUrlAndRefresh(e.target.value)}
           fullWidth
           size="small"
           data-testid="ics-url-input"
