@@ -46,6 +46,19 @@ test("Change shows an empty input, not the previously saved URL", async ({
   expect(html).not.toContain(secretIcsUrl);
 });
 
+test("Change then re-saving the same URL still returns to the configured summary", async ({
+  page,
+  extensionId,
+}) => {
+  const extPage = await ExtensionPage.from(page, extensionId);
+  await extPage.setIcsUrl(secretIcsUrl);
+  await extPage.changeIcsUrl();
+  await extPage.setIcsUrl(secretIcsUrl);
+
+  await expect(await extPage.hasIcsUrlInput()).toEqual(false);
+  await expect(page.getByTestId("ics-url-configured")).toBeVisible();
+});
+
 test("Delete clears the ICS URL and returns to the unset state", async ({
   page,
   extensionId,

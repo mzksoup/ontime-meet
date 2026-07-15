@@ -108,6 +108,9 @@ function buildIcsFixture(start: Date, end: Date): string {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  // reset between tests - individual tests opt into willParticipate: true,
+  // and without this it leaks into whichever test runs next
+  (willParticipate as any).mockReturnValue(false);
 });
 
 const icsUrl =

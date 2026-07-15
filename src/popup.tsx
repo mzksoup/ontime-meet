@@ -88,7 +88,10 @@ function App() {
                 setIsEditingIcsUrl(!icsUrl);
                 return;
               }
-              saveIcsUrlAndRefresh(value);
+              // set explicitly (rather than relying on the icsUrl effect):
+              // re-saving the same URL string is a same-value setState, which
+              // React bails out of, so the effect would never re-fire
+              saveIcsUrlAndRefresh(value).then(() => setIsEditingIcsUrl(false));
             }}
             fullWidth
             size="small"
