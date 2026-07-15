@@ -2,7 +2,6 @@ export type CalendarAPIResponse = {
   id: string;
   summary: string;
   status: string;
-  attendees?: { responseStatus: string }[];
   start: {
     dateTime: string;
   };
@@ -11,16 +10,8 @@ export type CalendarAPIResponse = {
   };
   hangoutLink?: string;
   description?: string;
-  conferenceData?: any;
 };
 
-export function willParticipate(
-  event: CalendarAPIResponse,
-  selfEmail: string
-): boolean {
-  return !!(
-    event.status !== "cancelled" &&
-    event.attendees?.find((a: any) => a.email === selfEmail)?.responseStatus !==
-      "declined"
-  );
+export function willParticipate(event: CalendarAPIResponse): boolean {
+  return event.status !== "cancelled";
 }

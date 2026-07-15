@@ -10,10 +10,6 @@ const KEY_EVETNS = "events_1";
 const KEY_OPENED = "opened";
 const KEY_ICS_URL = "ics_url_1";
 
-export async function clearAllEvents(): Promise<void> {
-  await chrome.storage.local.remove([KEY_EVETNS, KEY_OPENED]);
-}
-
 export async function getIcsUrl(): Promise<string | null> {
   const { [KEY_ICS_URL]: value } = await chrome.storage.local.get([
     KEY_ICS_URL,
