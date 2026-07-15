@@ -5,10 +5,12 @@ import {
   willParticipate,
 } from "./calendar";
 import { loadConfig } from "./config";
+import { parseIcsToEvents } from "./ics";
 import {
   clearAllEvents,
   getAllEvents,
   getEvent,
+  getIcsUrl,
   isOpened,
   markAsOpened,
   removeEvent,
@@ -73,6 +75,37 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+// When an ICS URL is configured, prefer it over the Google Calendar API: no
+// OAuth token needed, so it also works for accounts without Google sign-in.
+async function fetchTargetEvents(
+  interactive: boolean
+): Promise<{ events: CalendarAPIResponse[]; email: string }> {
+  const icsUrl = await getIcsUrl();
+  if (icsUrl) {
+    const text = await fetch(icsUrl).then((res) => res.text());
+    const windowStart = startOfDay(new Date());
+    const windowEnd = new Date(Date.now() + 1000 * 60 * 60 * 24 * 3);
+    return {
+      events: parseIcsToEvents(text, windowStart, windowEnd),
+      // ponytail: ICS mode has no Google account email (no OAuth token was
+      // requested), so authuser query params are skipped downstream.
+      email: "",
+    };
+  }
+  const [accessToken, user] = await Promise.all([
+    getAuthToken(interactive),
+    getProfileUserInfo(interactive),
+  ]);
+  return {
+    events: await listAllEvents(accessToken, "primary"),
+    email: user.email,
+  };
+}
+
 async function calcPatches(
   events: CalendarAPIResponse[],
   alarms: Map<string, chrome.alarms.Alarm>,
@@ -103,21 +136,19 @@ async function calcPatches(
 }
 
 async function startWatching(interactive = true) {
-  const [accessToken, user, config] = await Promise.all([
-    getAuthToken(interactive),
-    getProfileUserInfo(interactive),
+  const [{ events: allEvents, email }, config] = await Promise.all([
+    fetchTargetEvents(interactive),
     loadConfig(),
     chrome.action.setBadgeText({ text: "-" }),
   ]);
-  const allEvents = await listAllEvents(accessToken, "primary");
   const targetEvents = allEvents.filter((e) => !!config.extractValidUrl(e));
   const alarms = new Map(
     (await chrome.alarms.getAll()).map((a) => [a.name, a])
   );
-  const patches = await calcPatches(targetEvents, alarms, user.email);
+  const patches = await calcPatches(targetEvents, alarms, email);
   const upcomingEvents = targetEvents.filter(
     (e) =>
-      willParticipate(e, user.email) &&
+      willParticipate(e, email) &&
       isSameDay(new Date(e.start.dateTime), new Date()) &&
       new Date(e.start.dateTime).getTime() > Date.now()
   );
@@ -129,9 +160,9 @@ async function startWatching(interactive = true) {
       case "update": {
         const event = targetEvents.find((e) => e.id === p.id)!;
         let { url, rule } = config.extractValidUrl(event)!;
-        if (rule.provider === "Google Meet") {
+        if (rule.provider === "Google Meet" && email) {
           const tmp = new URL(url);
-          tmp.searchParams.set("authuser", user.email);
+          tmp.searchParams.set("authuser", email);
           url = tmp.toString();
         }
         await chrome.alarms.clear(p.id);
@@ -152,9 +183,9 @@ async function startWatching(interactive = true) {
       case "add": {
         const event = targetEvents.find((e) => e.id === p.id)!;
         let { url, rule } = config.extractValidUrl(event)!;
-        if (rule.provider === "Google Meet") {
+        if (rule.provider === "Google Meet" && email) {
           const tmp = new URL(url);
-          tmp.searchParams.set("authuser", user.email);
+          tmp.searchParams.set("authuser", email);
           url = tmp.toString();
         }
         await Promise.all([
@@ -180,11 +211,15 @@ async function startWatching(interactive = true) {
 }
 
 async function init() {
-  const [config, authToken] = await Promise.all([
+  const [config, authToken, icsUrl] = await Promise.all([
     loadConfig(),
-    getAuthToken(false),
+    // No cached token is a normal "not signed in yet" state, not a fatal
+    // error - swallow it so an ICS-only user (no Google auth at all) still
+    // reaches the alarm setup below.
+    getAuthToken(false).catch(() => undefined),
+    getIcsUrl(),
   ]);
-  if (authToken) {
+  if (authToken || icsUrl) {
     loading = startWatching(false).catch(() => {});
   }
   await chrome.alarms.create(Alerms.refetch, {
