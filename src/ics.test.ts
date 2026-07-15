@@ -289,6 +289,52 @@ describe("parseIcsToEvents", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("keeps a RECURRENCE-ID override whose own PARTSTAT differs from the declined master", () => {
+    // Real-world case (issue #5): the master series is declined, but one
+    // occurrence was rescheduled and re-invited with a fresh PARTSTAT. The
+    // master's declined status must not suppress the whole series.
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VTIMEZONE",
+      "TZID:Asia/Tokyo",
+      "BEGIN:STANDARD",
+      "DTSTART:19700101T000000",
+      "TZOFFSETFROM:+0900",
+      "TZOFFSETTO:+0900",
+      "TZNAME:JST",
+      "END:STANDARD",
+      "END:VTIMEZONE",
+      "BEGIN:VEVENT",
+      "UID:recurring-declined-1@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART;TZID=Asia/Tokyo:20260713T150000",
+      "DTEND;TZID=Asia/Tokyo:20260713T160000",
+      "SUMMARY:週次MTG",
+      "STATUS:CONFIRMED",
+      "RRULE:FREQ=WEEKLY;BYDAY=MO",
+      "ATTENDEE;PARTSTAT=DECLINED;CN=Self:mailto:self@example.com",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:recurring-declined-1@example.com",
+      "RECURRENCE-ID;TZID=Asia/Tokyo:20260720T150000",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART;TZID=Asia/Tokyo:20260716T150000",
+      "DTEND;TZID=Asia/Tokyo:20260716T160000",
+      "SUMMARY:週次MTG（前倒し・再招待）",
+      "STATUS:CONFIRMED",
+      "ATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Self:mailto:self@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd, selfIcsUrl);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].summary).toBe("週次MTG（前倒し・再招待）");
+  });
+
   it("skips all-day events (DTSTART;VALUE=DATE)", () => {
     const ics = [
       "BEGIN:VCALENDAR",

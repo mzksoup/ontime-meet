@@ -28,15 +28,26 @@ export function parseIcsToEvents(
       continue; // ponytail: all-day events have no meeting URL to open, skip.
     }
 
-    if (isCancelledOrDeclined(vc, selfEmail)) {
-      continue;
-    }
-
     if (!event.isRecurring()) {
+      if (isCancelledOrDeclined(vc, selfEmail)) {
+        continue;
+      }
       const occStart = event.startDate.toJSDate();
       if (occStart >= windowStart && occStart <= windowEnd) {
         results.push(toApiEvent(vc, event.uid, occStart, event.endDate.toJSDate()));
       }
+      continue;
+    }
+
+    // ponytail: don't gate the whole series on the master's own RSVP -
+    // a RECURRENCE-ID override can carry a different PARTSTAT than the
+    // master (e.g. master declined, one occurrence rescheduled and
+    // re-accepted). Only bail out here for a truly cancelled series;
+    // per-occurrence status is checked inside the iterator below.
+    if (
+      String(vc.getFirstPropertyValue("status") ?? "").toLowerCase() ===
+      "cancelled"
+    ) {
       continue;
     }
 
