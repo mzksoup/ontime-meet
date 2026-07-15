@@ -116,6 +116,10 @@ async function startWatching() {
     // stale: deleted, declined, moved outside the 3-day window, or (for a
     // recurring occurrence) shifted to a new start time - which changes its
     // id (see ics.ts). Sweep it so old times don't linger forever.
+    // ponytail: keyed off alarms, not getAllEvents() - an alarm that already
+    // fired and then aged out of the window leaves its storage/opened entry
+    // behind. Add a union with getAllEvents() keys if that starts showing up
+    // as stale entries in the popup list.
     const targetIds = new Set(targetEvents.map((e) => e.id));
     const staleIds = [...alarms.keys()].filter(
       (name) => name !== Alerms.refetch && !targetIds.has(name)
