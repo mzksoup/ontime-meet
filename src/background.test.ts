@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { willParticipate } from "./calendar";
+import { loadConfig } from "./config";
 
 vi.mock("./calendar", () => ({
   willParticipate: vi.fn(() => false),
@@ -20,17 +21,34 @@ function setupChromeMocks(overrides: MockOverrides = {}) {
   if (overrides.icsUrl) {
     fakeStorage["ics_url_1"] = overrides.icsUrl;
   }
+  // ponytail: a real chrome.alarms.getAll must reflect prior create/clear
+  // calls in the same test, or a second refetch can never observe "this
+  // alarm already exists" - which is exactly what the cleanup/update logic
+  // under test needs to see.
+  const fakeAlarms = new Map<string, { name: string; scheduledTime: number }>();
   vi.stubGlobal("chrome", {
     alarms: {
-      getAll: vi.fn(() => Promise.resolve([])),
-      create: vi.fn(() => Promise.resolve()),
-      clear: vi.fn(() => Promise.resolve(true)),
-      clearAll: vi.fn(() => Promise.resolve(true)),
+      getAll: vi.fn(() => Promise.resolve([...fakeAlarms.values()])),
+      create: vi.fn((name: string, info: { when?: number } = {}) => {
+        fakeAlarms.set(name, { name, scheduledTime: info.when ?? Date.now() });
+        return Promise.resolve();
+      }),
+      clear: vi.fn((name: string) => Promise.resolve(fakeAlarms.delete(name))),
+      clearAll: vi.fn(() => {
+        fakeAlarms.clear();
+        return Promise.resolve(true);
+      }),
       onAlarm: { addListener: vi.fn((cb) => listeners.onAlarm.push(cb)) },
     },
     action: {
       setBadgeText: vi.fn(() => Promise.resolve()),
       setBadgeBackgroundColor: vi.fn(() => Promise.resolve()),
+    },
+    tabs: {
+      create: vi.fn(() => Promise.resolve({ windowId: 1 })),
+    },
+    windows: {
+      update: vi.fn(() => Promise.resolve()),
     },
     storage: {
       local: {
@@ -79,22 +97,33 @@ async function loadBackgroundModule(overrides: MockOverrides = {}) {
   vi.resetModules();
   const listeners = setupChromeMocks(overrides);
   await import("./background");
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-  return listeners;
+  await flush();
+  return { ...listeners, overrides };
+}
+
+// ponytail: mirrors the two microtask hops the tests already waited on
+// individually before each assertion; named so intent reads at call sites.
+function flush(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0)).then(
+    () => new Promise((r) => setTimeout(r, 0))
+  );
 }
 
 function toIcsUtc(date: Date): string {
   return date.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
 }
 
-function buildIcsFixture(start: Date, end: Date): string {
+function buildIcsFixture(
+  start: Date,
+  end: Date,
+  uid = "ics-event-1@example.com"
+): string {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//Test//Test//EN",
     "BEGIN:VEVENT",
-    "UID:ics-event-1@example.com",
+    `UID:${uid}`,
     `DTSTAMP:${toIcsUtc(new Date())}`,
     `DTSTART:${toIcsUtc(start)}`,
     `DTEND:${toIcsUtc(end)}`,
@@ -104,6 +133,10 @@ function buildIcsFixture(start: Date, end: Date): string {
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");
+}
+
+function buildEmptyIcsFixture(): string {
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "END:VCALENDAR"].join("\r\n");
 }
 
 beforeEach(() => {
@@ -184,6 +217,74 @@ describe("background service worker ICS feed mode", () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(chrome.action.setBadgeText).not.toHaveBeenCalled();
+  });
+});
+
+describe("background service worker stale-entry cleanup", () => {
+  it("removes the alarm and stored event once it disappears from the feed, but leaves the refetch alarm alone", async () => {
+    (willParticipate as any).mockReturnValue(true);
+    const start = new Date(Date.now() + 1000 * 60 * 60);
+    const end = new Date(start.getTime() + 1000 * 60 * 60);
+    const { onAlarm, onMessage, overrides } = await loadBackgroundModule({
+      icsUrl,
+      icsResponse: buildIcsFixture(start, end),
+    });
+    const refetchHandler = onAlarm[0];
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+    expect(chrome.alarms.create).toHaveBeenCalledWith(
+      "ics-event-1@example.com",
+      expect.anything()
+    );
+
+    overrides.icsResponse = buildEmptyIcsFixture();
+    (chrome.alarms.clear as any).mockClear();
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    expect(chrome.alarms.clear).toHaveBeenCalledWith(
+      "ics-event-1@example.com"
+    );
+    expect(chrome.alarms.clear).not.toHaveBeenCalledWith("CRX_GCAL_REFRESH");
+
+    const reminders = await new Promise((resolve) =>
+      onMessage[0]({ type: "ListReminders" }, {}, resolve)
+    );
+    expect(reminders as any[]).toHaveLength(0);
+  });
+
+  it("drops the old occurrence's alarm and creates a new one when a recurring occurrence's id changes with its time", async () => {
+    (willParticipate as any).mockReturnValue(true);
+    const oldStart = new Date(Date.now() + 1000 * 60 * 60);
+    const oldEnd = new Date(oldStart.getTime() + 1000 * 60 * 60);
+    const oldId = "series@example.com_2026-07-15T10:00:00.000Z";
+    const { onAlarm, overrides } = await loadBackgroundModule({
+      icsUrl,
+      icsResponse: buildIcsFixture(oldStart, oldEnd, oldId),
+    });
+    const refetchHandler = onAlarm[0];
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+    expect(chrome.alarms.create).toHaveBeenCalledWith(
+      oldId,
+      expect.anything()
+    );
+
+    const newStart = new Date(Date.now() + 1000 * 60 * 60 * 2);
+    newStart.setMilliseconds(0); // ICS DTSTART has second precision only
+    const newEnd = new Date(newStart.getTime() + 1000 * 60 * 60);
+    const newId = "series@example.com_2026-07-15T12:00:00.000Z";
+    overrides.icsResponse = buildIcsFixture(newStart, newEnd, newId);
+    (chrome.alarms.clear as any).mockClear();
+    (chrome.alarms.create as any).mockClear();
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    expect(chrome.alarms.clear).toHaveBeenCalledWith(oldId);
+    const config = await loadConfig();
+    expect(chrome.alarms.create).toHaveBeenCalledWith(newId, {
+      when: newStart.getTime() - config.offset,
+    });
   });
 });
 

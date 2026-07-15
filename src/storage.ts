@@ -70,6 +70,12 @@ export async function markAsOpened(id: string): Promise<void> {
   await chrome.storage.local.set({ [KEY_OPENED]: JSON.stringify([...set]) });
 }
 
+export async function clearOpenedFlag(id: string): Promise<void> {
+  const set = await loadOpenedFlags();
+  set.delete(id);
+  await chrome.storage.local.set({ [KEY_OPENED]: JSON.stringify([...set]) });
+}
+
 function loadOpenedFlags(): Promise<Set<string>> {
   return chrome.storage.local
     .get([KEY_OPENED])

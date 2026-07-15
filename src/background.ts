@@ -2,6 +2,7 @@ import { CalendarAPIResponse, willParticipate } from "./calendar";
 import { loadConfig } from "./config";
 import { parseIcsToEvents } from "./ics";
 import {
+  clearOpenedFlag,
   getAllEvents,
   getEvent,
   getIcsUrl,
@@ -110,6 +111,25 @@ async function startWatching() {
       (await chrome.alarms.getAll()).map((a) => [a.name, a])
     );
     const patches = await calcPatches(targetEvents, alarms);
+
+    // Anything alarmed that is no longer in the current feed window is
+    // stale: deleted, declined, moved outside the 3-day window, or (for a
+    // recurring occurrence) shifted to a new start time - which changes its
+    // id (see ics.ts). Sweep it so old times don't linger forever.
+    const targetIds = new Set(targetEvents.map((e) => e.id));
+    const staleIds = [...alarms.keys()].filter(
+      (name) => name !== Alerms.refetch && !targetIds.has(name)
+    );
+    await Promise.all(
+      staleIds.map((id) =>
+        Promise.all([
+          chrome.alarms.clear(id),
+          removeEvent(id),
+          clearOpenedFlag(id),
+        ])
+      )
+    );
+
     const upcomingEvents = targetEvents.filter(
       (e) =>
         willParticipate(e, "") &&
