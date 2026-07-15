@@ -44,16 +44,20 @@ export function parseIcsToEvents(
     let next;
     let guard = 0;
     while ((next = iterator.next()) && guard++ < MAX_OCCURRENCES_PER_EVENT) {
-      const occStart = next.toJSDate();
-      if (occStart > windowEnd) break;
-      if (occStart < windowStart) continue;
+      // ponytail: can't break on the original scheduled time - a
+      // RECURRENCE-ID override can move an occurrence earlier than its
+      // original slot, pulling it into the window after that slot would
+      // have been skipped. Bounded by MAX_OCCURRENCES_PER_EVENT instead.
+      const originalStart = next.toJSDate();
       const details = event.getOccurrenceDetails(next);
+      const occStart = details.startDate.toJSDate();
+      if (occStart < windowStart || occStart > windowEnd) continue;
       if (isCancelledOrDeclined(details.item.component, selfEmail)) continue;
       results.push(
         toApiEvent(
           details.item.component,
-          `${event.uid}_${occStart.toISOString()}`,
-          details.startDate.toJSDate(),
+          `${event.uid}_${originalStart.toISOString()}`,
+          occStart,
           details.endDate.toJSDate()
         )
       );
