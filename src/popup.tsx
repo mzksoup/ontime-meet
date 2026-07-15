@@ -5,9 +5,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppBar } from "./components/AppBar";
 import { Timeline } from "@mui/lab";
 import { Footer } from "./components/Footer";
-import { UnauthorizedAlert } from "./components/UnauthorizedAlert";
 import { EventTimelineItem } from "./components/EventTimelineItem";
-import { useAuth } from "./hooks/useAuth";
 import { useEvents } from "./hooks/useEvents";
 import { useIcsUrl } from "./hooks/useIcsUrl";
 import { useI18n } from "./hooks/useI18n";
@@ -17,7 +15,6 @@ function startOfDay(date: Date): Date {
 }
 
 function App() {
-  const { isAuthenticated, signIn, signOut } = useAuth();
   const { events, refresh } = useEvents();
   const { icsUrl, save: saveIcsUrl } = useIcsUrl();
   const saveIcsUrlAndRefresh = useCallback(
@@ -26,9 +23,6 @@ function App() {
   );
   const { t } = useI18n();
   const [mountedAt] = useState(Date.now());
-  // ponytail: ICS mode is an alternative to Google sign-in, not layered on
-  // top of the auth flow itself - it only widens the gate that decides
-  // whether the timeline (vs. the sign-in prompt) renders.
   const hasIcsUrl = !!icsUrl;
   const todaysOrUpcomingEvents = useMemo(() => {
     return events
@@ -51,12 +45,8 @@ function App() {
 
   return (
     <div style={{ width: 360 }}>
-      <AppBar
-        isAuthenticated={isAuthenticated}
-        onRefresh={refresh}
-        onSignOut={signOut}
-      />
-      {isAuthenticated || hasIcsUrl ? (
+      <AppBar onRefresh={refresh} />
+      {hasIcsUrl ? (
         <Box my={2} mt={8}>
           <Timeline sx={{ padding: 0 }}>
             {todaysOrUpcomingEvents.map((event) => (
@@ -69,9 +59,7 @@ function App() {
           </Timeline>
         </Box>
       ) : (
-        <Box my={2} pt={8}>
-          <UnauthorizedAlert onSignIn={signIn} />
-        </Box>
+        <Box my={2} pt={8} />
       )}
       <Box mx={2} mb={2}>
         <TextField

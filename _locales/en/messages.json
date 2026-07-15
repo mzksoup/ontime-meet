@@ -2,7 +2,6 @@
   "author": { "message": "Leko" },
   "appName": { "message": "gcal-url-opener" },
   "refresh": { "message": "Refresh" },
-  "signOut": { "message": "Sign out" },
   "eventStartsIn": {
     "message": "$title$ in $startsIn$",
     "placeholders": {
@@ -14,12 +13,9 @@
   "upcomingMeetings": { "message": "Upcoming meetings" },
   "pastMeetings": { "message": "Past meetings" },
   "noMoreUpcomingMeetings": { "message": "No more upcoming meetings." },
-  "unAuthorized": {
-    "message": "You are not logged in to Google. Please log in with the Google account you wish to link your calendar to."
-  },
   "icsUrlLabel": { "message": "Google Calendar ICS URL" },
   "icsUrlHelp": {
-    "message": "Alternative to Google sign-in: paste your calendar's private ICS URL (Settings > Integrate calendar > Secret address in iCal format)."
+    "message": "Paste your calendar's private ICS URL (Settings > Integrate calendar > Secret address in iCal format)."
   },
   "privacyPolicy": { "message": "Privacy Policy" },
   "inNMinutes": {

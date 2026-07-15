@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ParsedEvent, PortableEvent } from "../types/Event";
-import { useAuth } from "./useAuth";
 
 export function useEvents() {
-  const { isAuthenticated } = useAuth();
   const [eventMap, setEventMap] = useState(new Map<string, PortableEvent>());
   const events = useMemo(
     () =>
@@ -40,7 +38,7 @@ export function useEvents() {
 
   useEffect(() => {
     listReminders();
-  }, [isAuthenticated]);
+  }, [listReminders]);
 
   return {
     events,
