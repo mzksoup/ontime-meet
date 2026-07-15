@@ -101,7 +101,6 @@ async function startWatching() {
   }
 
   try {
-    await chrome.action.setBadgeText({ text: "-" });
     const [allEvents, config] = await Promise.all([
       fetchTargetEvents(icsUrl),
       loadConfig(),
