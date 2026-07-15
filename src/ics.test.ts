@@ -169,11 +169,10 @@ describe("parseIcsToEvents", () => {
     expect(events).toHaveLength(0);
   });
 
-  it("excludes events where any ATTENDEE has PARTSTAT=DECLINED", () => {
-    // ponytail: ICS-only mode has no reliable "this attendee is me" signal,
-    // so any declined attendee drops the event (including ones we organized
-    // where a guest declined). Upgrade path: pass an ICS_SELF_EMAIL to match
-    // only our own PARTSTAT if this over-excludes in practice.
+  const selfIcsUrl =
+    "https://calendar.google.com/calendar/ical/self%40example.com/private-abc123/basic.ics";
+
+  it("excludes events where the self ATTENDEE (matched via the ICS URL's calendar id) has PARTSTAT=DECLINED", () => {
     const ics = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -190,9 +189,56 @@ describe("parseIcsToEvents", () => {
       "END:VCALENDAR",
     ].join("\r\n");
 
-    const events = parseIcsToEvents(ics, windowStart, windowEnd);
+    const events = parseIcsToEvents(ics, windowStart, windowEnd, selfIcsUrl);
 
     expect(events).toHaveLength(0);
+  });
+
+  it("keeps events where a co-attendee declined but self is still tentative/needs-action", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VEVENT",
+      "UID:co-declined-1@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART:20260716T100000Z",
+      "DTEND:20260716T110000Z",
+      "SUMMARY:他の人が辞退した予定",
+      "STATUS:CONFIRMED",
+      "ATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Self:mailto:self@example.com",
+      "ATTENDEE;PARTSTAT=DECLINED;CN=Other:mailto:other@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd, selfIcsUrl);
+
+    expect(events).toHaveLength(1);
+  });
+
+  it("keeps events with a declined co-attendee when self's email cannot be determined", () => {
+    // ponytail: without a resolvable self email we can't tell who "I" am, so
+    // lean toward inclusion rather than reintroducing the over-exclusion bug.
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VEVENT",
+      "UID:unknown-self-1@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART:20260716T100000Z",
+      "DTEND:20260716T110000Z",
+      "SUMMARY:自分が誰か分からない予定",
+      "STATUS:CONFIRMED",
+      "ATTENDEE;PARTSTAT=DECLINED;CN=Other:mailto:other@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd);
+
+    expect(events).toHaveLength(1);
   });
 
   it("skips all-day events (DTSTART;VALUE=DATE)", () => {
