@@ -1,13 +1,7 @@
-import { getAuthToken, getProfileUserInfo } from "./auth";
-import {
-  CalendarAPIResponse,
-  listAllEvents,
-  willParticipate,
-} from "./calendar";
+import { CalendarAPIResponse, willParticipate } from "./calendar";
 import { loadConfig } from "./config";
 import { parseIcsToEvents } from "./ics";
 import {
-  clearAllEvents,
   getAllEvents,
   getEvent,
   getIcsUrl,
@@ -18,9 +12,6 @@ import {
 } from "./storage";
 
 type IncomingMessage =
-  | { type: "ListAccountRequest" }
-  | { type: "SignInRequest" }
-  | { type: "SignOutRequest" }
   | { type: "RefreshRequest" }
   | { type: "ListReminders" };
 
@@ -34,29 +25,13 @@ const Alerms = {
   refetch: "CRX_GCAL_REFRESH",
 };
 
+const BADGE_COLOR_SUCCESS = "#1A73E8";
+const BADGE_COLOR_ERROR = "#D93025";
+
 let loading = Promise.resolve();
 
 async function dispatch(message: IncomingMessage) {
   switch (message.type) {
-    case "SignInRequest":
-      await getProfileUserInfo();
-      loading = startWatching();
-      return;
-    case "SignOutRequest": {
-      const token = await getAuthToken();
-      await Promise.all([
-        fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`),
-        new Promise<void>((resolve) =>
-          chrome.identity.removeCachedAuthToken({ token }, resolve)
-        ),
-        new Promise<void>((resolve) =>
-          chrome.identity.clearAllCachedAuthTokens(resolve)
-        ),
-        chrome.alarms.clearAll(),
-        clearAllEvents(),
-      ]);
-      return;
-    }
     case "RefreshRequest":
       return loading.then(() => startWatching());
     case "ListReminders": {
@@ -79,41 +54,25 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-// When an ICS URL is configured, prefer it over the Google Calendar API: no
-// OAuth token needed, so it also works for accounts without Google sign-in.
 async function fetchTargetEvents(
-  interactive: boolean
-): Promise<{ events: CalendarAPIResponse[]; email: string }> {
-  const icsUrl = await getIcsUrl();
-  if (icsUrl) {
-    const text = await fetch(icsUrl).then((res) => res.text());
-    const windowStart = startOfDay(new Date());
-    const windowEnd = new Date(Date.now() + 1000 * 60 * 60 * 24 * 3);
-    return {
-      events: parseIcsToEvents(text, windowStart, windowEnd),
-      // ponytail: ICS mode has no Google account email (no OAuth token was
-      // requested), so authuser query params are skipped downstream.
-      email: "",
-    };
-  }
-  const [accessToken, user] = await Promise.all([
-    getAuthToken(interactive),
-    getProfileUserInfo(interactive),
-  ]);
-  return {
-    events: await listAllEvents(accessToken, "primary"),
-    email: user.email,
-  };
+  icsUrl: string
+): Promise<CalendarAPIResponse[]> {
+  const text = await fetch(icsUrl).then((res) => res.text());
+  const windowStart = startOfDay(new Date());
+  const windowEnd = new Date(Date.now() + 1000 * 60 * 60 * 24 * 3);
+  return parseIcsToEvents(text, windowStart, windowEnd);
 }
 
 async function calcPatches(
   events: CalendarAPIResponse[],
-  alarms: Map<string, chrome.alarms.Alarm>,
-  email: string
+  alarms: Map<string, chrome.alarms.Alarm>
 ): Promise<AlermPatch[]> {
   const config = await loadConfig();
   return events.map((e): AlermPatch => {
-    if (willParticipate(e, email)) {
+    // ponytail: ICS mode has no self-account email, so willParticipate is
+    // always fed "" - it stays true unless the event itself was cancelled
+    // (already filtered upstream by ics.ts), kept for parity with calendar.ts.
+    if (willParticipate(e, "")) {
       if (
         alarms.has(e.id) &&
         alarms.get(e.id)!.scheduledTime + config.offset ===
@@ -135,93 +94,88 @@ async function calcPatches(
   });
 }
 
-async function startWatching(interactive = true) {
-  const [{ events: allEvents, email }, config] = await Promise.all([
-    fetchTargetEvents(interactive),
-    loadConfig(),
-    chrome.action.setBadgeText({ text: "-" }),
-  ]);
-  const targetEvents = allEvents.filter((e) => !!config.extractValidUrl(e));
-  const alarms = new Map(
-    (await chrome.alarms.getAll()).map((a) => [a.name, a])
-  );
-  const patches = await calcPatches(targetEvents, alarms, email);
-  const upcomingEvents = targetEvents.filter(
-    (e) =>
-      willParticipate(e, email) &&
-      isSameDay(new Date(e.start.dateTime), new Date()) &&
-      new Date(e.start.dateTime).getTime() > Date.now()
-  );
-  await chrome.action.setBadgeText({
-    text: String(upcomingEvents.length),
-  });
-  for (const p of patches) {
-    switch (p.type) {
-      case "update": {
-        const event = targetEvents.find((e) => e.id === p.id)!;
-        let { url, rule } = config.extractValidUrl(event)!;
-        if (rule.provider === "Google Meet" && email) {
-          const tmp = new URL(url);
-          tmp.searchParams.set("authuser", email);
-          url = tmp.toString();
+async function startWatching() {
+  const icsUrl = await getIcsUrl();
+  if (!icsUrl) {
+    return; // ICS URL not configured yet - nothing to fetch, leave badge as-is.
+  }
+
+  try {
+    await chrome.action.setBadgeText({ text: "-" });
+    const [allEvents, config] = await Promise.all([
+      fetchTargetEvents(icsUrl),
+      loadConfig(),
+    ]);
+    const targetEvents = allEvents.filter((e) => !!config.extractValidUrl(e));
+    const alarms = new Map(
+      (await chrome.alarms.getAll()).map((a) => [a.name, a])
+    );
+    const patches = await calcPatches(targetEvents, alarms);
+    const upcomingEvents = targetEvents.filter(
+      (e) =>
+        willParticipate(e, "") &&
+        isSameDay(new Date(e.start.dateTime), new Date()) &&
+        new Date(e.start.dateTime).getTime() > Date.now()
+    );
+
+    for (const p of patches) {
+      switch (p.type) {
+        case "update": {
+          const event = targetEvents.find((e) => e.id === p.id)!;
+          const { url } = config.extractValidUrl(event)!;
+          await chrome.alarms.clear(p.id);
+          await Promise.all([
+            chrome.alarms.create(p.id, {
+              when: p.when.getTime() - config.offset,
+            }),
+            upsertEvent(p.id, {
+              id: event.id,
+              title: event.summary,
+              startsAt: event.start.dateTime,
+              endsAt: event.end.dateTime,
+              url,
+            }),
+          ]);
+          break;
         }
-        await chrome.alarms.clear(p.id);
-        await Promise.all([
-          chrome.alarms.create(p.id, {
-            when: p.when.getTime() - config.offset,
-          }),
-          upsertEvent(p.id, {
-            id: event.id,
-            title: event.summary,
-            startsAt: event.start.dateTime,
-            endsAt: event.end.dateTime,
-            url: url!,
-          }),
-        ]);
-        break;
-      }
-      case "add": {
-        const event = targetEvents.find((e) => e.id === p.id)!;
-        let { url, rule } = config.extractValidUrl(event)!;
-        if (rule.provider === "Google Meet" && email) {
-          const tmp = new URL(url);
-          tmp.searchParams.set("authuser", email);
-          url = tmp.toString();
+        case "add": {
+          const event = targetEvents.find((e) => e.id === p.id)!;
+          const { url } = config.extractValidUrl(event)!;
+          await Promise.all([
+            chrome.alarms.create(p.id, {
+              when: p.when.getTime() - config.offset,
+            }),
+            upsertEvent(p.id, {
+              id: event.id,
+              title: event.summary,
+              startsAt: event.start.dateTime,
+              endsAt: event.end.dateTime,
+              url,
+            }),
+          ]);
+          break;
         }
-        await Promise.all([
-          chrome.alarms.create(p.id, {
-            when: p.when.getTime() - config.offset,
-          }),
-          upsertEvent(p.id, {
-            id: event.id,
-            title: event.summary,
-            startsAt: event.start.dateTime,
-            endsAt: event.end.dateTime,
-            url: url!,
-          }),
-        ]);
-        break;
-      }
-      case "remove": {
-        await Promise.all([chrome.alarms.clear(p.id), removeEvent(p.id)]);
-        break;
+        case "remove": {
+          await Promise.all([chrome.alarms.clear(p.id), removeEvent(p.id)]);
+          break;
+        }
       }
     }
+
+    await chrome.action.setBadgeText({ text: String(upcomingEvents.length) });
+    await chrome.action.setBadgeBackgroundColor({
+      color: BADGE_COLOR_SUCCESS,
+    });
+  } catch (err) {
+    await chrome.action.setBadgeText({ text: "!" });
+    await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_ERROR });
+    throw err;
   }
 }
 
 async function init() {
-  const [config, authToken, icsUrl] = await Promise.all([
-    loadConfig(),
-    // No cached token is a normal "not signed in yet" state, not a fatal
-    // error - swallow it so an ICS-only user (no Google auth at all) still
-    // reaches the alarm setup below.
-    getAuthToken(false).catch(() => undefined),
-    getIcsUrl(),
-  ]);
-  if (authToken || icsUrl) {
-    loading = startWatching(false).catch(() => {});
-  }
+  const config = await loadConfig();
+  loading = startWatching().catch(() => {});
   await chrome.alarms.create(Alerms.refetch, {
     periodInMinutes: config.pollInterval,
   });
@@ -234,7 +188,7 @@ chrome.runtime.onMessage.addListener((message, _sender, callback) => {
 chrome.alarms.onAlarm.addListener(async (alerm) => {
   switch (alerm.name) {
     case Alerms.refetch: {
-      loading = startWatching(false).catch(() => {});
+      loading = startWatching().catch(() => {});
       return;
     }
     default: {
