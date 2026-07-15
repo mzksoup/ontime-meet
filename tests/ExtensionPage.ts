@@ -21,16 +21,24 @@ export class ExtensionPage {
 
   constructor(public readonly page: Page) {}
 
-  async signIn(): Promise<void> {
-    await this.page.getByTestId("signin-with-google-button").click();
+  hasIcsUrlInput(): Promise<boolean> {
+    return this.page.getByTestId("ics-url-input").isVisible();
   }
 
-  async signOut(): Promise<void> {
-    await this.page.getByTestId("signout-button").click();
-    await this.page.getByTestId("signin-with-google-button").waitFor();
+  async setIcsUrl(url: string): Promise<void> {
+    const input = this.page.getByTestId("ics-url-input").locator("input");
+    await input.fill(url);
+    await input.blur();
+    await this.page.getByTestId("ics-url-configured").waitFor();
   }
 
-  hasUnauthorizedWarning(): Promise<boolean> {
-    return this.page.getByTestId("unauthorized-warning").isVisible();
+  async changeIcsUrl(): Promise<void> {
+    await this.page.getByTestId("ics-url-change-button").click();
+    await this.page.getByTestId("ics-url-input").waitFor();
+  }
+
+  async deleteIcsUrl(): Promise<void> {
+    await this.page.getByTestId("ics-url-delete-button").click();
+    await this.page.getByTestId("ics-url-input").waitFor();
   }
 }

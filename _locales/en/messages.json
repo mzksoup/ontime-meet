@@ -17,6 +17,9 @@
   "icsUrlHelp": {
     "message": "Paste your calendar's private ICS URL (Settings > Integrate calendar > Secret address in iCal format)."
   },
+  "icsUrlConfigured": { "message": "ICS feed configured" },
+  "change": { "message": "Change" },
+  "delete": { "message": "Delete" },
   "privacyPolicy": { "message": "Privacy Policy" },
   "inNMinutes": {
     "message": "in $1m",

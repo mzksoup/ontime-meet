@@ -8,10 +8,7 @@ test("List events in order of start time", async ({ page, extensionId }) => {
       new Date(date.getTime() + 1000 * 60 * mins);
     Date.now = () => today.getTime();
 
-    chrome.identity.getAuthToken = (
-      _: unknown,
-      callback?: (token: string) => void
-    ) => callback?.("xxx");
+    chrome.storage.local.set({ ics_url_1: "https://example.com/test.ics" });
     // @ts-expect-error sendMessage is defined with overload
     chrome.runtime.sendMessage = (() => {
       const origin = chrome.runtime.sendMessage.bind(chrome.runtime);
@@ -55,10 +52,7 @@ test("List past events correctly", async ({ page, extensionId }) => {
       new Date(date.getTime() + 1000 * 60 * mins);
     Date.now = () => today.getTime();
 
-    chrome.identity.getAuthToken = (
-      _: unknown,
-      callback?: (token: string) => void
-    ) => callback?.("xxx");
+    chrome.storage.local.set({ ics_url_1: "https://example.com/test.ics" });
     // @ts-expect-error sendMessage is defined with overload
     chrome.runtime.sendMessage = (() => {
       const origin = chrome.runtime.sendMessage.bind(chrome.runtime);

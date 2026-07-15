@@ -1,6 +1,12 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import ReactDOM from "react-dom/client";
-import { Box, TextField } from "@mui/material";
+import { Box, Button, TextField, Typography } from "@mui/material";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppBar } from "./components/AppBar";
 import { Timeline } from "@mui/lab";
@@ -24,6 +30,14 @@ function App() {
   const { t } = useI18n();
   const [mountedAt] = useState(Date.now());
   const hasIcsUrl = !!icsUrl;
+  // ponytail: no separate "loading" flag - icsUrl starts null until storage
+  // read resolves, so this defaults to the input, then flips to the summary
+  // once a saved value arrives. Re-runs only when icsUrl itself changes
+  // (load/save/delete), so it never fights the "Change" button's manual open.
+  const [isEditingIcsUrl, setIsEditingIcsUrl] = useState(!hasIcsUrl);
+  useEffect(() => {
+    setIsEditingIcsUrl(!icsUrl);
+  }, [icsUrl]);
   const todaysOrUpcomingEvents = useMemo(() => {
     return events
       .filter(
@@ -62,18 +76,52 @@ function App() {
         <Box my={2} pt={8} />
       )}
       <Box mx={2} mb={2}>
-        <TextField
-          // remount once the stored value finishes loading (defaultValue is
-          // only read on first render for an uncontrolled input)
-          key={icsUrl ?? ""}
-          label={t("icsUrlLabel")}
-          helperText={t("icsUrlHelp")}
-          defaultValue={icsUrl ?? ""}
-          onBlur={(e) => saveIcsUrlAndRefresh(e.target.value)}
-          fullWidth
-          size="small"
-          data-testid="ics-url-input"
-        />
+        {isEditingIcsUrl ? (
+          <TextField
+            label={t("icsUrlLabel")}
+            helperText={t("icsUrlHelp")}
+            onBlur={(e) => {
+              const value = e.target.value.trim();
+              if (!value) {
+                // nothing typed - cancel back to whatever was already saved,
+                // don't wipe an existing URL just because the field lost focus
+                setIsEditingIcsUrl(!icsUrl);
+                return;
+              }
+              saveIcsUrlAndRefresh(value);
+            }}
+            fullWidth
+            size="small"
+            data-testid="ics-url-input"
+          />
+        ) : (
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Typography variant="body2" data-testid="ics-url-configured">
+              {t("icsUrlConfigured")}
+            </Typography>
+            <Box>
+              <Button
+                size="small"
+                onClick={() => setIsEditingIcsUrl(true)}
+                data-testid="ics-url-change-button"
+              >
+                {t("change")}
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                onClick={() => saveIcsUrlAndRefresh("")}
+                data-testid="ics-url-delete-button"
+              >
+                {t("delete")}
+              </Button>
+            </Box>
+          </Box>
+        )}
       </Box>
       <Footer />
     </div>
