@@ -4,6 +4,8 @@ on:
 
 jobs:
   updatesnapshots:
+    permissions:
+      contents: write
     if: ${{ github.event.issue.pull_request && github.event.comment.body == '/update-snapshots'}}
     timeout-minutes: 60
     runs-on: ubuntu-latest
