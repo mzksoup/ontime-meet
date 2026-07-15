@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { willParticipate } from "./calendar";
 import { loadConfig } from "./config";
+import { isOpened, markAsOpened } from "./storage";
 
 vi.mock("./calendar", () => ({
   willParticipate: vi.fn(() => false),
@@ -284,6 +285,81 @@ describe("background service worker stale-entry cleanup", () => {
     const config = await loadConfig();
     expect(chrome.alarms.create).toHaveBeenCalledWith(newId, {
       when: newStart.getTime() - config.offset,
+    });
+  });
+});
+
+describe("background service worker time-change handling", () => {
+  it("updates the alarm and stored event to the new time when the same event's start time changes", async () => {
+    (willParticipate as any).mockReturnValue(true);
+    const start = new Date(Date.now() + 1000 * 60 * 60);
+    const end = new Date(start.getTime() + 1000 * 60 * 60);
+    const { onAlarm, onMessage, overrides } = await loadBackgroundModule({
+      icsUrl,
+      icsResponse: buildIcsFixture(start, end),
+    });
+    const refetchHandler = onAlarm[0];
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    const newStart = new Date(start.getTime() + 1000 * 60 * 30);
+    newStart.setMilliseconds(0); // ICS DTSTART has second precision only
+    const newEnd = new Date(newStart.getTime() + 1000 * 60 * 60);
+    overrides.icsResponse = buildIcsFixture(newStart, newEnd);
+    (chrome.alarms.clear as any).mockClear();
+    (chrome.alarms.create as any).mockClear();
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    const config = await loadConfig();
+    expect(chrome.alarms.clear).toHaveBeenCalledWith(
+      "ics-event-1@example.com"
+    );
+    expect(chrome.alarms.create).toHaveBeenCalledWith(
+      "ics-event-1@example.com",
+      { when: newStart.getTime() - config.offset }
+    );
+
+    const reminders = (await new Promise((resolve) =>
+      onMessage[0]({ type: "ListReminders" }, {}, resolve)
+    )) as any[];
+    expect(reminders[0].startsAt).toBe(newStart.toISOString());
+  });
+
+  it("clears the opened flag when the time changes, so the new time's alarm still opens the tab", async () => {
+    (willParticipate as any).mockReturnValue(true);
+    const eventId = "ics-event-1@example.com";
+    const start = new Date(Date.now() + 1000 * 60 * 60);
+    const end = new Date(start.getTime() + 1000 * 60 * 60);
+    const { onAlarm, overrides } = await loadBackgroundModule({
+      icsUrl,
+      icsResponse: buildIcsFixture(start, end),
+    });
+    const refetchHandler = onAlarm[0];
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    await markAsOpened(eventId);
+    expect(await isOpened(eventId)).toBe(true);
+
+    const newStart = new Date(start.getTime() + 1000 * 60 * 30);
+    newStart.setMilliseconds(0);
+    const newEnd = new Date(newStart.getTime() + 1000 * 60 * 60);
+    overrides.icsResponse = buildIcsFixture(newStart, newEnd);
+    await refetchHandler({ name: "CRX_GCAL_REFRESH" });
+    await flush();
+
+    expect(await isOpened(eventId)).toBe(false);
+
+    const eventAlarmHandler = onAlarm[0];
+    await eventAlarmHandler({ name: eventId });
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: "https://meet.google.com/ics-test-1234",
+    });
+    expect(chrome.windows.update).toHaveBeenCalledWith(1, {
+      focused: true,
+      drawAttention: true,
     });
   });
 });

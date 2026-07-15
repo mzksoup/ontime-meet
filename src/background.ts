@@ -154,6 +154,9 @@ async function startWatching() {
               endsAt: event.end.dateTime,
               url,
             }),
+            // The start time moved, so a stale "already opened" flag from
+            // the old time must not suppress the tab-open at the new time.
+            clearOpenedFlag(p.id),
           ]);
           break;
         }
