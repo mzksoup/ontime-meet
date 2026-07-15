@@ -17,6 +17,10 @@
   "unAuthorized": {
     "message": "You are not logged in to Google. Please log in with the Google account you wish to link your calendar to."
   },
+  "icsUrlLabel": { "message": "Google Calendar ICS URL" },
+  "icsUrlHelp": {
+    "message": "Alternative to Google sign-in: paste your calendar's private ICS URL (Settings > Integrate calendar > Secret address in iCal format)."
+  },
   "privacyPolicy": { "message": "Privacy Policy" },
   "inNMinutes": {
     "message": "in $1m",
