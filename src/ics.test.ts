@@ -148,6 +148,54 @@ describe("parseIcsToEvents", () => {
     ).toHaveLength(0);
   });
 
+  it("finds an override whose original slot is beyond windowEnd but whose overridden start is inside the window", () => {
+    // Base: weekly on Monday from 2026-07-13. Natural slots: 07-13 (before
+    // window) and 07-20 (after windowEnd 07-18) - neither is in-window on
+    // its own. The override moves the 07-20 slot earlier, to 07-16, which
+    // IS inside the window. A naive early-break on the *original* schedule
+    // time would exit the loop at 07-20 before ever discovering the
+    // override's actual (in-window) start time.
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VTIMEZONE",
+      "TZID:Asia/Tokyo",
+      "BEGIN:STANDARD",
+      "DTSTART:19700101T000000",
+      "TZOFFSETFROM:+0900",
+      "TZOFFSETTO:+0900",
+      "TZNAME:JST",
+      "END:STANDARD",
+      "END:VTIMEZONE",
+      "BEGIN:VEVENT",
+      "UID:recurring-3@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART;TZID=Asia/Tokyo:20260713T150000",
+      "DTEND;TZID=Asia/Tokyo:20260713T160000",
+      "SUMMARY:週次MTG",
+      "STATUS:CONFIRMED",
+      "RRULE:FREQ=WEEKLY;BYDAY=MO",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:recurring-3@example.com",
+      "RECURRENCE-ID;TZID=Asia/Tokyo:20260720T150000",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART;TZID=Asia/Tokyo:20260716T150000",
+      "DTEND;TZID=Asia/Tokyo:20260716T160000",
+      "SUMMARY:週次MTG（前倒し）",
+      "STATUS:CONFIRMED",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].summary).toBe("週次MTG（前倒し）");
+    expect(events[0].start.dateTime).toBe("2026-07-16T06:00:00.000Z"); // 15:00+09:00
+  });
+
   it("excludes events with STATUS:CANCELLED", () => {
     const ics = [
       "BEGIN:VCALENDAR",
@@ -169,11 +217,10 @@ describe("parseIcsToEvents", () => {
     expect(events).toHaveLength(0);
   });
 
-  it("excludes events where any ATTENDEE has PARTSTAT=DECLINED", () => {
-    // ponytail: ICS-only mode has no reliable "this attendee is me" signal,
-    // so any declined attendee drops the event (including ones we organized
-    // where a guest declined). Upgrade path: pass an ICS_SELF_EMAIL to match
-    // only our own PARTSTAT if this over-excludes in practice.
+  const selfIcsUrl =
+    "https://calendar.google.com/calendar/ical/self%40example.com/private-abc123/basic.ics";
+
+  it("excludes events where the self ATTENDEE (matched via the ICS URL's calendar id) has PARTSTAT=DECLINED", () => {
     const ics = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -190,9 +237,102 @@ describe("parseIcsToEvents", () => {
       "END:VCALENDAR",
     ].join("\r\n");
 
-    const events = parseIcsToEvents(ics, windowStart, windowEnd);
+    const events = parseIcsToEvents(ics, windowStart, windowEnd, selfIcsUrl);
 
     expect(events).toHaveLength(0);
+  });
+
+  it("keeps events where a co-attendee declined but self is still tentative/needs-action", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VEVENT",
+      "UID:co-declined-1@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART:20260716T100000Z",
+      "DTEND:20260716T110000Z",
+      "SUMMARY:他の人が辞退した予定",
+      "STATUS:CONFIRMED",
+      "ATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Self:mailto:self@example.com",
+      "ATTENDEE;PARTSTAT=DECLINED;CN=Other:mailto:other@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd, selfIcsUrl);
+
+    expect(events).toHaveLength(1);
+  });
+
+  it("keeps events with a declined co-attendee when self's email cannot be determined", () => {
+    // ponytail: without a resolvable self email we can't tell who "I" am, so
+    // lean toward inclusion rather than reintroducing the over-exclusion bug.
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VEVENT",
+      "UID:unknown-self-1@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART:20260716T100000Z",
+      "DTEND:20260716T110000Z",
+      "SUMMARY:自分が誰か分からない予定",
+      "STATUS:CONFIRMED",
+      "ATTENDEE;PARTSTAT=DECLINED;CN=Other:mailto:other@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd);
+
+    expect(events).toHaveLength(1);
+  });
+
+  it("keeps a RECURRENCE-ID override whose own PARTSTAT differs from the declined master", () => {
+    // Real-world case (issue #5): the master series is declined, but one
+    // occurrence was rescheduled and re-invited with a fresh PARTSTAT. The
+    // master's declined status must not suppress the whole series.
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VTIMEZONE",
+      "TZID:Asia/Tokyo",
+      "BEGIN:STANDARD",
+      "DTSTART:19700101T000000",
+      "TZOFFSETFROM:+0900",
+      "TZOFFSETTO:+0900",
+      "TZNAME:JST",
+      "END:STANDARD",
+      "END:VTIMEZONE",
+      "BEGIN:VEVENT",
+      "UID:recurring-declined-1@example.com",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART;TZID=Asia/Tokyo:20260713T150000",
+      "DTEND;TZID=Asia/Tokyo:20260713T160000",
+      "SUMMARY:週次MTG",
+      "STATUS:CONFIRMED",
+      "RRULE:FREQ=WEEKLY;BYDAY=MO",
+      "ATTENDEE;PARTSTAT=DECLINED;CN=Self:mailto:self@example.com",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:recurring-declined-1@example.com",
+      "RECURRENCE-ID;TZID=Asia/Tokyo:20260720T150000",
+      "DTSTAMP:20260701T000000Z",
+      "DTSTART;TZID=Asia/Tokyo:20260716T150000",
+      "DTEND;TZID=Asia/Tokyo:20260716T160000",
+      "SUMMARY:週次MTG（前倒し・再招待）",
+      "STATUS:CONFIRMED",
+      "ATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Self:mailto:self@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseIcsToEvents(ics, windowStart, windowEnd, selfIcsUrl);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].summary).toBe("週次MTG（前倒し・再招待）");
   });
 
   it("skips all-day events (DTSTART;VALUE=DATE)", () => {

@@ -61,7 +61,7 @@ async function fetchTargetEvents(
   const text = await fetch(icsUrl).then((res) => res.text());
   const windowStart = startOfDay(new Date());
   const windowEnd = new Date(Date.now() + 1000 * 60 * 60 * 24 * 3);
-  return parseIcsToEvents(text, windowStart, windowEnd);
+  return parseIcsToEvents(text, windowStart, windowEnd, icsUrl);
 }
 
 async function calcPatches(
