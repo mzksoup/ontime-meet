@@ -70,10 +70,7 @@ async function calcPatches(
 ): Promise<AlermPatch[]> {
   const config = await loadConfig();
   return events.map((e): AlermPatch => {
-    // ponytail: ICS mode has no self-account email, so willParticipate is
-    // always fed "" - it stays true unless the event itself was cancelled
-    // (already filtered upstream by ics.ts), kept for parity with calendar.ts.
-    if (willParticipate(e, "")) {
+    if (willParticipate(e)) {
       if (
         alarms.has(e.id) &&
         alarms.get(e.id)!.scheduledTime + config.offset ===
@@ -136,7 +133,7 @@ async function startWatching() {
 
     const upcomingEvents = targetEvents.filter(
       (e) =>
-        willParticipate(e, "") &&
+        willParticipate(e) &&
         isSameDay(new Date(e.start.dateTime), new Date()) &&
         new Date(e.start.dateTime).getTime() > Date.now()
     );
