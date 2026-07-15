@@ -1,5 +1,5 @@
 import { Container, Typography } from "@mui/material";
-import { URL_PRIVACY_POLICY, PACKAGE_VERSION } from "../constants";
+import { PACKAGE_VERSION } from "../constants";
 import { useI18n } from "../hooks/useI18n";
 
 export function Footer() {
@@ -9,11 +9,7 @@ export function Footer() {
     <Container component="footer">
       <Typography variant="body2">
         &copy; {t("author")} |{" "}
-        <span data-testid="app-version">{t("version", [PACKAGE_VERSION])}</span>{" "}
-        |{" "}
-        <a href={URL_PRIVACY_POLICY} target="_blank" rel="noopener">
-          {t("privacyPolicy")}
-        </a>
+        <span data-testid="app-version">{t("version", [PACKAGE_VERSION])}</span>
       </Typography>
     </Container>
   );

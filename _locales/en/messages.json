@@ -1,6 +1,6 @@
 {
-  "author": { "message": "Leko" },
-  "appName": { "message": "gcal-url-opener" },
+  "author": { "message": "mzksoup" },
+  "appName": { "message": "ontime-meet" },
   "refresh": { "message": "Refresh" },
   "eventStartsIn": {
     "message": "$title$ in $startsIn$",
@@ -20,7 +20,6 @@
   "icsUrlConfigured": { "message": "ICS feed configured" },
   "change": { "message": "Change" },
   "delete": { "message": "Delete" },
-  "privacyPolicy": { "message": "Privacy Policy" },
   "inNMinutes": {
     "message": "in $1m",
     "placeholders": { "duration": { "content": "$1" } }
