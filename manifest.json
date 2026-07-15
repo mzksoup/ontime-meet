@@ -8,6 +8,9 @@
     "identity.email",
     "storage"
   ],
+  "host_permissions": [
+    "https://calendar.google.com/*"
+  ],
   "default_locale": "en",
   "content_security_policy": {},
   "action": {
